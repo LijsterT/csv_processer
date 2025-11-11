@@ -83,21 +83,31 @@ that file to reset the app to default settings.
 
 ## Packaging with PyInstaller (optional)
 
+Use the included helper script to produce a standalone executable:
+
 1. Install PyInstaller (preferably in a virtual environment):
    ```bash
    pip install pyinstaller
    ```
-2. Build the executable:
+2. Run the build helper (this defaults to a single-file, windowed executable):
    ```bash
-   pyinstaller --name PersonalizedCSVCreator --onefile --noconsole app.py
+   python build_executable.py
    ```
-3. The bundled executable will be in the `dist/` directory. Distribute the
-   `dist/PersonalizedCSVCreator` (or `.exe` on Windows) file together with the
-   dependencies your platform requires.
+   Use `--console` to keep the terminal window, `--onedir` to create a folder
+   bundle, or `--icon path/to/icon.ico` to embed a custom icon.
+3. Collect the packaged binary from the `dist/` directory. The default output is
+   `dist/PersonalizedCSVCreator` (or `PersonalizedCSVCreator.exe` on Windows).
 
-PyInstaller automatically bundles pandas and openpyxl; the `--noconsole` flag
-hides the terminal window on Windows/macOS. Adjust the command as needed for
-icon files or additional resources.
+The script automatically cleans previous PyInstaller artifacts so repeated
+builds stay reliable. If you prefer to call PyInstaller manually, the script
+emits the equivalent of:
+
+```bash
+pyinstaller --name PersonalizedCSVCreator --onefile --noconsole app.py
+```
+
+PyInstaller bundles pandas and openpyxl automatically. Adjust the helper
+arguments to add icons or switch packaging modes as needed.
 
 ## Troubleshooting
 

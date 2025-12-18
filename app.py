@@ -12,6 +12,7 @@ import json
 import os
 import threading
 from dataclasses import dataclass, asdict, field
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from itertools import islice
 from numbers import Number
 from pathlib import Path
@@ -611,18 +612,30 @@ class CSVConverterApp:
 
 
 def format_number(value: Number, sig_figs: Optional[int]) -> str:
-    """Format numbers with optional significant figures, trimming trailing decimals."""
+    """Format numbers with optional significant figures using decimal notation."""
 
     if sig_figs is None:
         return str(value)
+
     try:
-        formatted = format(float(value), f".{sig_figs}g")
-    except Exception:
+        dec = Decimal(str(value))
+    except (InvalidOperation, ValueError):
         return str(value)
 
-    if "." in formatted:
-        formatted = formatted.rstrip("0").rstrip(".") or "0"
-    return formatted
+    if dec.is_nan() or dec.is_infinite():
+        return str(value)
+
+    # Determine quantization step to enforce significant figures.
+    adjusted = dec.adjusted() if dec != 0 else 0
+    shift = sig_figs - adjusted - 1
+    quant = Decimal(1).scaleb(-shift)
+
+    try:
+        quantized = dec.quantize(quant, rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        return str(value)
+
+    return format(quantized, "f")
 
 
 def main() -> None:

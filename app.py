@@ -11,7 +11,7 @@ import datetime as dt
 import json
 import os
 import threading
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from itertools import islice
 from numbers import Number
 from pathlib import Path
@@ -50,6 +50,7 @@ class AppConfig:
     encoding: str = "UTF-8"
     line_ending: str = "Auto (OS default)"
     sheet_name: str = ""
+    significant_figures: dict[str, int] = field(default_factory=dict)
 
 
 class CSVConverterApp:
@@ -62,6 +63,7 @@ class CSVConverterApp:
         self.root.minsize(850, 600)
 
         self.config = self.load_config()
+        self.significant_figures: dict[str, int] = dict(self.config.significant_figures)
         self.excel_path: Optional[Path] = Path(self.config.last_file) if self.config.last_file else None
         self.sheet_names: List[str] = []
         self.preview_data: Optional[pd.DataFrame] = None
@@ -122,6 +124,32 @@ class CSVConverterApp:
         self.sheet_combo = ttk.Combobox(sheet_frame, textvariable=self.sheet_var, state="readonly")
         self.sheet_combo.pack(side=tk.LEFT, padx=5)
         self.sheet_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh_preview())
+
+        # Significant figures controls
+        sig_fig_frame = ttk.LabelFrame(main_frame, text="Numeric formatting")
+        sig_fig_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(
+            sig_fig_frame,
+            text="Select a column and set significant figures (optional for numeric columns):",
+        ).grid(row=0, column=0, columnspan=3, sticky=tk.W, **padding)
+
+        self.column_listbox = tk.Listbox(sig_fig_frame, height=6, exportselection=False)
+        self.column_listbox.grid(row=1, column=0, rowspan=3, sticky=tk.NSEW, **padding)
+        self.column_listbox.bind("<<ListboxSelect>>", self.on_column_select)
+
+        self.sig_fig_var = tk.StringVar()
+        ttk.Label(sig_fig_frame, text="Significant figures:").grid(row=1, column=1, sticky=tk.W, **padding)
+        self.sig_fig_entry = ttk.Entry(sig_fig_frame, textvariable=self.sig_fig_var, width=10)
+        self.sig_fig_entry.grid(row=1, column=2, sticky=tk.W, **padding)
+
+        ttk.Button(sig_fig_frame, text="Apply", command=self.apply_sig_fig).grid(row=2, column=1, sticky=tk.W, **padding)
+        ttk.Button(sig_fig_frame, text="Clear", command=self.clear_sig_fig).grid(row=2, column=2, sticky=tk.W, **padding)
+
+        self.sig_fig_status = tk.StringVar(value="No column selected")
+        ttk.Label(sig_fig_frame, textvariable=self.sig_fig_status).grid(row=3, column=1, columnspan=2, sticky=tk.W, **padding)
+
+        sig_fig_frame.columnconfigure(0, weight=1)
 
         # Separator selection
         separator_frame = ttk.LabelFrame(main_frame, text="Separator (Delimiter)")
@@ -316,6 +344,7 @@ class CSVConverterApp:
             df = pd.read_excel(self.excel_path, sheet_name=sheet_name, nrows=PREVIEW_ROW_LIMIT)
             self.config.sheet_name = sheet_name or ""
             self.preview_data = df
+            self.update_column_list(df.columns)
             self.display_preview(df)
         except Exception as exc:
             messagebox.showerror("Preview error", f"Unable to generate preview: {exc}")
@@ -409,7 +438,7 @@ class CSVConverterApp:
         columns = list(df.columns)
         total_rows = len(df)
 
-        def convert_value(value: Any) -> Tuple[str, bool]:
+        def convert_value(value: Any, column: str) -> Tuple[str, bool]:
             if pd.isna(value):
                 return "", False
             if isinstance(value, pd.Timestamp):
@@ -430,7 +459,7 @@ class CSVConverterApp:
             if isinstance(value, pd.Timedelta):
                 return str(value), False
             if isinstance(value, Number) and not isinstance(value, bool):
-                return str(value), False
+                return format_number(value, self.significant_figures.get(column)), False
             if isinstance(value, bool):
                 return "TRUE" if value else "FALSE", False
             if hasattr(value, "isoformat") and not isinstance(value, str):
@@ -475,7 +504,7 @@ class CSVConverterApp:
             row_iter = islice(row_iter, limit)
 
         for idx, row in enumerate(row_iter, start=1):
-            cells = [convert_value(value) for value in row]
+            cells = [convert_value(value, column) for value, column in zip(row, columns)]
             yield format_cells(cells)
             if progress_callback and limit is None and idx % 1000 == 0:
                 progress_callback(idx, total_rows)
@@ -494,8 +523,95 @@ class CSVConverterApp:
         self.config.line_ending = self.line_ending_var.get()
         self.config.sheet_name = self.sheet_var.get()
         self.config.last_file = str(self.excel_path) if self.excel_path else ""
+        self.config.significant_figures = self.significant_figures
         self.save_config()
         self.root.destroy()
+
+    # ------------------------------------------------------------------
+    # Significant figures helpers
+    def update_column_list(self, columns: Sequence[str]) -> None:
+        existing_selection = self.column_listbox.curselection()
+        selected_value = None
+        if existing_selection:
+            selected_value = self.column_listbox.get(existing_selection[0])
+
+        self.column_listbox.delete(0, tk.END)
+        for col in columns:
+            self.column_listbox.insert(tk.END, col)
+
+        # Drop entries for columns that no longer exist
+        self.significant_figures = {k: v for k, v in self.significant_figures.items() if k in columns}
+
+        if selected_value in columns:
+            idx = columns.index(selected_value)
+            self.column_listbox.selection_set(idx)
+            self.column_listbox.see(idx)
+            self.on_column_select()
+        else:
+            self.sig_fig_status.set("No column selected")
+            self.sig_fig_var.set("")
+
+    def on_column_select(self, _event: Optional[tk.Event] = None) -> None:  # type: ignore[override]
+        selection = self.column_listbox.curselection()
+        if not selection:
+            self.sig_fig_status.set("No column selected")
+            return
+        column = self.column_listbox.get(selection[0])
+        current = self.significant_figures.get(column)
+        if current is None:
+            self.sig_fig_var.set("")
+            self.sig_fig_status.set(f"{column}: no significant figures set")
+        else:
+            self.sig_fig_var.set(str(current))
+            self.sig_fig_status.set(f"{column}: {current} significant figure(s)")
+
+    def apply_sig_fig(self) -> None:
+        selection = self.column_listbox.curselection()
+        if not selection:
+            messagebox.showinfo("Select column", "Please choose a column to update.")
+            return
+        column = self.column_listbox.get(selection[0])
+        value = self.sig_fig_var.get().strip()
+        if not value:
+            messagebox.showinfo("Missing value", "Enter a positive integer for significant figures or use Clear.")
+            return
+        try:
+            sig_figs = int(value)
+            if sig_figs <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid value", "Significant figures must be a positive integer.")
+            return
+        self.significant_figures[column] = sig_figs
+        self.sig_fig_status.set(f"{column}: {sig_figs} significant figure(s)")
+        self.refresh_preview()
+
+    def clear_sig_fig(self) -> None:
+        selection = self.column_listbox.curselection()
+        if not selection:
+            messagebox.showinfo("Select column", "Please choose a column to clear.")
+            return
+        column = self.column_listbox.get(selection[0])
+        if column in self.significant_figures:
+            del self.significant_figures[column]
+        self.sig_fig_var.set("")
+        self.sig_fig_status.set(f"{column}: no significant figures set")
+        self.refresh_preview()
+
+
+def format_number(value: Number, sig_figs: Optional[int]) -> str:
+    """Format numbers with optional significant figures, trimming trailing decimals."""
+
+    if sig_figs is None:
+        return str(value)
+    try:
+        formatted = format(float(value), f".{sig_figs}g")
+    except Exception:
+        return str(value)
+
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".") or "0"
+    return formatted
 
 
 def main() -> None:

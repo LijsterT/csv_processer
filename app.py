@@ -75,6 +75,7 @@ class CSVConverterApp:
             self.file_var.set(str(self.excel_path))
             if self.config.sheet_name and self.config.sheet_name in self.sheet_names:
                 self.sheet_var.set(self.config.sheet_name)
+            self.refresh_preview()
         else:
             self.excel_path = None
 
@@ -241,7 +242,6 @@ class CSVConverterApp:
         # Initial state adjustments
         self.update_separator_state()
         self.update_quote_state()
-        self.refresh_preview()
 
     # ------------------------------------------------------------------
     # Helper utilities
@@ -336,11 +336,15 @@ class CSVConverterApp:
     # Preview
     def refresh_preview(self) -> None:
         if not self.excel_path:
+            self.clear_preview(status="Select an Excel file to preview.")
+            return
+        if not self.sheet_var.get():
+            self.clear_preview(status="Select a sheet to preview.")
             return
         if not self.validate_settings(show_dialog=False):
             return
         try:
-            sheet_name = self.sheet_var.get() or None
+            sheet_name = self.sheet_var.get()
             df = pd.read_excel(self.excel_path, sheet_name=sheet_name, nrows=PREVIEW_ROW_LIMIT)
             self.config.sheet_name = sheet_name or ""
             self.preview_data = df
@@ -349,6 +353,12 @@ class CSVConverterApp:
         except Exception as exc:
             messagebox.showerror("Preview error", f"Unable to generate preview: {exc}")
             self.status_var.set("Preview failed")
+
+    def clear_preview(self, status: str = "Ready") -> None:
+        self.preview_text.configure(state=tk.NORMAL)
+        self.preview_text.delete("1.0", tk.END)
+        self.preview_text.configure(state=tk.DISABLED)
+        self.status_var.set(status)
 
     def display_preview(self, df: pd.DataFrame) -> None:
         csv_lines = list(self.iter_csv_lines(df, limit=PREVIEW_ROW_LIMIT))
@@ -536,14 +546,15 @@ class CSVConverterApp:
             selected_value = self.column_listbox.get(existing_selection[0])
 
         self.column_listbox.delete(0, tk.END)
-        for col in columns:
+        column_names = list(columns)
+        for col in column_names:
             self.column_listbox.insert(tk.END, col)
 
         # Drop entries for columns that no longer exist
-        self.significant_figures = {k: v for k, v in self.significant_figures.items() if k in columns}
+        self.significant_figures = {k: v for k, v in self.significant_figures.items() if k in column_names}
 
-        if selected_value in columns:
-            idx = columns.index(selected_value)
+        if selected_value in column_names:
+            idx = column_names.index(selected_value)
             self.column_listbox.selection_set(idx)
             self.column_listbox.see(idx)
             self.on_column_select()

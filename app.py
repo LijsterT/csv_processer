@@ -15,7 +15,7 @@ from dataclasses import dataclass, asdict, field
 from itertools import islice
 from numbers import Number
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 import tkinter as tk
@@ -50,7 +50,7 @@ class AppConfig:
     encoding: str = "UTF-8"
     line_ending: str = "Auto (OS default)"
     sheet_name: str = ""
-    significant_figures: dict[str, int] = field(default_factory=dict)
+    significant_figures: Dict[str, int] = field(default_factory=dict)
 
 
 class CSVConverterApp:
@@ -63,7 +63,7 @@ class CSVConverterApp:
         self.root.minsize(850, 600)
 
         self.config = self.load_config()
-        self.significant_figures: dict[str, int] = dict(self.config.significant_figures)
+        self.significant_figures: Dict[str, int] = dict(self.config.significant_figures)
         self.excel_path: Optional[Path] = Path(self.config.last_file) if self.config.last_file else None
         self.sheet_names: List[str] = []
         self.preview_data: Optional[pd.DataFrame] = None
